@@ -78,7 +78,7 @@ gcloud functions deploy ProcessTickets \
   --runtime=go124 \
   --region=us-central1 \
   --source=. \
-  --entry-point=ProcessUsers \
+  --entry-point=ProcessTickets \
   --trigger-http \
   --allow-unauthenticated \
   --set-env-vars="AI_MODELS=openai:gpt-5-mini,OPENAI_API_KEY=your-key" \
