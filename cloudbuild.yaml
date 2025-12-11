@@ -1,0 +1,66 @@
+steps:
+  #  pre pull docker images
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - pull
+      - gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: pull
+
+  - name: gcr.io/k8s-skaffold/pack
+    env:
+      - GOOGLE_FUNCTION_TARGET=$_FUNCTION_TARGET
+    args:
+      - build
+      - >-
+        $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+      - "--builder=gcr.io/buildpacks/builder:latest"
+      - "--network=cloudbuild"
+      - "--path=src/cloudfunction/"
+      - "--env=GOOGLE_FUNCTION_TARGET"
+    id: Buildpack
+    entrypoint: pack
+    waitFor: ["-"]
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - >-
+        $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+    id: Push
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    args:
+      - run
+      - services
+      - update
+      - $_SERVICE_NAME
+      - "--platform=managed"
+      - >-
+        --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+      - >-
+        --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID
+      - "--region=$_DEPLOY_REGION"
+      - >-
+        --set-secrets=OPENAI_API_KEY=$_OPENAI_SECRET_NAME:latest
+      - "--quiet"
+    id: Deploy
+    entrypoint: gcloud
+images:
+  - >-
+    $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+options:
+  substitutionOption: ALLOW_LOOSE
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _TRIGGER_ID: 51567474-cdcc-400b-966a-665f3d4f54c5
+  _SERVICE_NAME: tco-vo-agent
+  _PLATFORM: managed
+  _DEPLOY_REGION: europe-west1
+  _AR_HOSTNAME: europe-west1-docker.pkg.dev
+  _FUNCTION_TARGET: ProcessUsers
+  _AR_REPOSITORY: cloud-run-source-deploy
+  _AR_PROJECT_ID: gwi-finya
+  _OPENAI_SECRET_NAME: FINYA_FRAUD_AGENT_OPENAI_KEY
+tags:
+  - gcp-cloud-build-deploy-cloud-run
+  - gcp-cloud-build-deploy-cloud-run-managed
+  - tco-vo-agent

@@ -1,0 +1,3 @@
+- experimentieren: schema gewichtung
+- devziel: user is im crm verarbeitet => cloud function -> finya ep für decision record
+- hauptziel: user is flagged for crm => cloud function -> finya ep für decision record

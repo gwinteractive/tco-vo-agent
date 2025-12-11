@@ -1,0 +1,4 @@
+# Exclude local development server entry points
+# These cause buildpacks to switch from function mode to app mode
+cmd/
+
