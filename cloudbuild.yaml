@@ -56,7 +56,7 @@ substitutions:
   _PLATFORM: managed
   _DEPLOY_REGION: europe-west1
   _AR_HOSTNAME: europe-west1-docker.pkg.dev
-  _FUNCTION_TARGET: ProcessUsers
+  _FUNCTION_TARGET: ProcessTickets
   _AR_REPOSITORY: cloud-run-source-deploy
   _AR_PROJECT_ID: gwi-finya
   _OPENAI_SECRET_NAME: FINYA_FRAUD_AGENT_OPENAI_KEY

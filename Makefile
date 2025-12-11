@@ -4,7 +4,7 @@ export GOOGLE_PROJECT=$(shell gcloud config get-value core/project)
 export OPENAI_KEY_NAME=FINYA_FRAUD_AGENT_OPENAI_KEY
 
 CLOUD_FUNC_DIR := src/cloudfunction
-FUNCTION_NAME ?= ProcessUsers
+FUNCTION_NAME ?= ProcessTickets
 REGION ?= europe-west1
 PROJECT_ID ?= $(shell gcloud config get-value project 2>/dev/null)
 RUNTIME ?= go124

@@ -56,7 +56,7 @@ export OPENAI_API_KEY=your-openai-api-key
 You can customize the deployment by setting environment variables:
 
 ```bash
-export FUNCTION_NAME=ProcessUsers
+export FUNCTION_NAME=ProcessTickets
 export REGION=us-central1
 export PROJECT_ID=your-project-id
 export RUNTIME=go124  # or go125
@@ -73,7 +73,7 @@ export FINYA_API_KEY=your-finya-api-key
 If you prefer to deploy manually without the script:
 
 ```bash
-gcloud functions deploy ProcessUsers \
+gcloud functions deploy ProcessTickets \
   --gen2 \
   --runtime=go124 \
   --region=us-central1 \
@@ -92,7 +92,7 @@ gcloud functions deploy ProcessUsers \
 After deployment, get the function URL:
 
 ```bash
-gcloud functions describe ProcessUsers \
+gcloud functions describe ProcessTickets \
   --gen2 \
   --region=us-central1 \
   --format='value(serviceConfig.uri)'
@@ -117,7 +117,7 @@ curl -X POST https://YOUR-FUNCTION-URL \
 Monitor function logs:
 
 ```bash
-gcloud functions logs read ProcessUsers \
+gcloud functions logs read ProcessTickets \
   --gen2 \
   --region=us-central1 \
   --limit=50
@@ -128,7 +128,7 @@ gcloud functions logs read ProcessUsers \
 To update environment variables after deployment:
 
 ```bash
-gcloud functions deploy ProcessUsers \
+gcloud functions deploy ProcessTickets \
   --gen2 \
   --region=us-central1 \
   --update-env-vars="AI_MODELS=openai:gpt-5-mini,OPENAI_API_KEY=new-key" \
@@ -149,7 +149,7 @@ gcloud functions deploy ProcessUsers \
 Check function status:
 
 ```bash
-gcloud functions describe ProcessUsers \
+gcloud functions describe ProcessTickets \
   --gen2 \
   --region=us-central1
 ```
