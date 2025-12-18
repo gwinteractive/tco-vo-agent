@@ -11,28 +11,17 @@ const (
 	defaultOpenAIModel = "gpt-5-mini"
 )
 
-type agentRunner func(systemPrompt string, userJSON []byte, model string) (*FraudDecision, error)
+type agentRunner func(systemPrompt string, attachmentPaths []string, model string) (*FraudDecision, error)
 
 type agentConfig struct {
 	Provider string
 	Model    string
 }
 
-func (a agentConfig) label() string {
-	provider := strings.TrimSpace(a.Provider)
-	model := strings.TrimSpace(a.Model)
-	if provider == "" {
-		return model
-	}
-	if model == "" {
-		return provider
-	}
-	return provider + ":" + model
-}
-
 type agentData struct {
-	agent agentConfig
-	data  map[string]interface{}
+	Agent  agentConfig
+	Data   FraudDecision
+	Reason string
 }
 
 type agentError struct {
@@ -41,7 +30,7 @@ type agentError struct {
 }
 
 var providerRunners = map[string]agentRunner{
-	"openai": getFraudDecisionFromOpenAI,
+	"openai": extractDataFromAttachment,
 }
 
 func parseAgentList(raw string) []agentConfig {
@@ -98,37 +87,14 @@ func loadAgentConfigs() []agentConfig {
 	}}
 }
 
-// loadReasoningAgents builds a list of agents used as a second layer when the primary layer blocks.
-func loadReasoningAgents() []agentConfig {
-	raw := strings.TrimSpace(os.Getenv("AI_REASONING_MODELS"))
-	if raw == "" {
-		raw = strings.TrimSpace(os.Getenv("AI_REASONING_MODEL"))
-	}
-
-	agents := parseAgentList(raw)
-	if len(agents) > 0 {
-		return agents
-	}
-
-	return []agentConfig{{
-		Provider: "openai",
-		Model:    defaultOpenAIModel,
-	}}
-}
-
 // extractDataFromTicket runs all configured agents against the same user payload.
-func extractDataFromTicket(ticket ZendeskTicket, agents []agentConfig) ([]agentData, []agentError) {
+func extractDataFromTicket(attachmentPaths []string, agents []agentConfig) ([]agentData, []agentError) {
 	systemPrompt := strings.TrimSpace(os.Getenv("AI_SYSTEM_PROMPT"))
 	if systemPrompt == "" {
 		systemPrompt = strings.TrimSpace(os.Getenv("OPENAI_SYSTEM_PROMPT"))
 	}
 	if systemPrompt == "" {
 		systemPrompt = defaultSystemPrompt
-	}
-
-	ticketJSON, err := json.Marshal(ticket)
-	if err != nil {
-		return nil, []agentError{{err: fmt.Errorf("failed to marshal ticket data: %w", err)}}
 	}
 
 	if len(agents) == 0 {
@@ -151,7 +117,7 @@ func extractDataFromTicket(ticket ZendeskTicket, agents []agentConfig) ([]agentD
 			continue
 		}
 
-		dataItem, err := runner(systemPrompt, ticketJSON, agent.Model)
+		dataItem, err := runner(systemPrompt, attachmentPaths, agent.Model)
 		if err != nil {
 			errors = append(errors, agentError{
 				agent: agent,
@@ -161,16 +127,13 @@ func extractDataFromTicket(ticket ZendeskTicket, agents []agentConfig) ([]agentD
 		}
 
 		data = append(data, agentData{
-			agent: agent,
-			data:  map[string]interface{}{"data": dataItem},
+			Agent:  agent,
+			Data:   *dataItem,
+			Reason: "",
 		})
 	}
 
 	return data, errors
-}
-
-func buildUserPrompt(userJSON []byte) string {
-	return fmt.Sprintf("User payload (JSON): %s\nReturn ONLY a JSON object with fields decision (block|release|human_review), reason (scam|commercial|creeper|other), and comment (<=240 chars).", string(userJSON))
 }
 
 func parseDecisionJSON(raw string) (*FraudDecision, error) {
@@ -184,8 +147,25 @@ func parseDecisionJSON(raw string) (*FraudDecision, error) {
 		return nil, fmt.Errorf("failed to parse decision JSON: %w (text: %s)", err, clean)
 	}
 
-	if decision.Decision == "" || decision.Reason == "" {
-		return nil, fmt.Errorf("invalid decision format: missing decision or reason")
+	errors := []string{}
+	if decision.Username == "" {
+		errors = append(errors, "missing username")
+	}
+	if decision.Email == "" {
+		errors = append(errors, "missing email")
+	}
+	if decision.AgencyName == "" {
+		errors = append(errors, "missing agencyName")
+	}
+	if decision.ReferenceNumber == "" {
+		errors = append(errors, "missing referenceNumber")
+	}
+	if decision.Date == "" {
+		errors = append(errors, "missing date")
+	}
+
+	if len(errors) > 0 {
+		return nil, fmt.Errorf("invalid decision format: %s", strings.Join(errors, ", "))
 	}
 
 	return &decision, nil

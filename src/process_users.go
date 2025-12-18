@@ -21,6 +21,14 @@ func ProcessTickets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// validate bearer token
+	err := validateBearerToken(r)
+	if err != nil {
+		log.Printf("Error validating bearer token: %v", err)
+		http.Error(w, "Invalid bearer token", http.StatusUnauthorized)
+		return
+	}
+
 	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -30,46 +38,46 @@ func ProcessTickets(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	ticketIds := []string{}
-	if err := json.Unmarshal(body, &ticketIds); err != nil {
-		log.Printf("Error parsing ticket IDs: %v, body: %s", err, string(body))
-		http.Error(w, "Invalid ticket IDs format", http.StatusBadRequest)
-		return
-	}
-	tickets, err := FetchZendeskTickets(ticketIds)
-	if err != nil {
-		log.Printf("Error fetching Zendesk tickets: %v", err)
-		http.Error(w, "Error fetching Zendesk tickets", http.StatusInternalServerError)
+	// sample request body:
+	// {  "account_id": 22129848,  "detail": {    "actor_id": "8447388090494",    "assignee_id": "8447388090494",    "brand_id": "8447346621310",    "created_at": "2025-01-08T10:12:07Z",    "custom_status": "8447320465790",    "description": "ticket_info_desc_2294a6e9ece2",    "external_id": null,    "form_id": "8646151517822",    "group_id": "8447320466430",    "id": "5158",    "is_public": true,    "organization_id": "8447346622462",    "priority": "LOW",    "requester_id": "8447388090494",    "status": "OPEN",    "subject": "ticketinfo_2294a6e9ece2",    "submitter_id": "8447388090494",    "tags": [      "ticket-info-test-tag"    ],    "type": "TASK",    "updated_at": "2025-01-08T10:12:07Z",    "via": {      "channel": "web_service"    }  },  "event": {},  "id": "cbe4028c-7239-495d-b020-f22348516046",  "subject": "zen:ticket:5158",  "time": "2025-01-08T10:12:07.672717030Z",  "type": "zen:event-type:ticket.created",  "zendesk_event_version": "2022-11-06"}
+
+	var ticketInfo ZendeskTicket
+	if err := json.Unmarshal(body, &ticketInfo); err != nil {
+		log.Printf("Error parsing ticket info: %v, body: %s", err, string(body))
+		http.Error(w, "Invalid ticket info format", http.StatusBadRequest)
 		return
 	}
 
 	// Process each user
-	go processTicketsAsync(tickets)
+	go processTicketsAsync(ticketInfo)
 
 	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 }
 
-func processTicketsAsync(tickets []ZendeskTicket) {
+func processTicketsAsync(ticket ZendeskTicket) {
 
 	agents := loadAgentConfigs()
 	// step 1 extract data from tickets
-	var dataArray []agentData
-	for _, ticket := range tickets {
-		data, errors := extractDataFromTicket(ticket, agents)
-		if len(errors) > 0 {
-			log.Printf("Error extracting data from tickets: %v", errors)
-			return
-		}
-		dataArray = append(dataArray, data...)
+
+	attachmentPaths, err := GetAttachments(ticket.ID)
+	if err != nil {
+		log.Printf("Error getting attachments: %v", err)
+		return
+	}
+
+	data, errors := extractDataFromTicket(attachmentPaths, agents)
+	if len(errors) > 0 {
+		log.Printf("Error extracting data from tickets: %v", errors)
+		return
 	}
 
 	// step 2 partition data by hasRequiredInfo
-	hasRequiredInfoData, noRequiredInfoData := partitionDataByHasRequiredInfo(dataArray)
+	hasRequiredInfoData, noRequiredInfoData := partitionDataByHasRequiredInfo(data)
 
 	// step 3 ban fraud users
-	err := BanFraudUsers(hasRequiredInfoData)
+	err = BanUsers(hasRequiredInfoData)
 	if err != nil {
 		log.Printf("Error banning fraud users: %v", err)
 	}
@@ -94,9 +102,9 @@ func partitionDataByHasRequiredInfo(dataArray []agentData) ([]agentData, []agent
 	for _, data := range dataArray {
 		hasRequiredInfo, reason := checkRequiredInfo(data)
 		if hasRequiredInfo {
-			data.data["reason"] = reason
 			hasRequiredInfoData = append(hasRequiredInfoData, data)
 		} else {
+			data.Reason = reason
 			noRequiredInfoData = append(noRequiredInfoData, data)
 		}
 	}
@@ -104,13 +112,13 @@ func partitionDataByHasRequiredInfo(dataArray []agentData) ([]agentData, []agent
 }
 
 func checkRequiredInfo(data agentData) (bool, string) {
-	if data.data["email"] == "" && data.data["username"] == "" {
+	if data.Data.Email == "" && data.Data.Username == "" {
 		return false, "email and username are required"
 	}
-	if data.data["agencyName"] == "" {
+	if data.Data.AgencyName == "" {
 		return false, "agencyName is required"
 	}
-	if data.data["referenceNumber"] == "" {
+	if data.Data.ReferenceNumber == "" {
 		return false, "referenceNumber is required"
 	}
 
@@ -128,7 +136,7 @@ func ReplyToTickets(tickets []agentData, messageTemplate string) error {
 		return errors.New("invalid message template")
 	}
 	for _, ticket := range tickets {
-		err := ReplyToTicket(ticket.data["ticketId"].(string), message)
+		err := ReplyToTicket(ticket.Data.TicketID, message)
 		if err != nil {
 			return err
 		}

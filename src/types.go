@@ -17,10 +17,12 @@ type UserData struct {
 
 // FraudDecision represents the fraud decision result from OpenAI
 type FraudDecision struct {
-	Decision string  `json:"decision"` // "block" | "release" | "human_review"
-	Reason   string  `json:"reason"`   // "scam" | "commercial" | "creeper" | "other"
-	Comment  string  `json:"comment"`  // short, policy-grounded rationale (max 240 chars)
-	Score    float64 `json:"score"`    // score of the decision
+	TicketID        string `json:"ticketId"`
+	Username        string `json:"username"`
+	Email           string `json:"email"`
+	AgencyName      string `json:"agencyName"`
+	ReferenceNumber string `json:"referenceNumber"`
+	Date            string `json:"date"`
 }
 
 // OpenAIResponse represents the response structure from OpenAI

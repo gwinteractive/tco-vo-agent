@@ -10,7 +10,7 @@ import (
 	"os"
 )
 
-func BanFraudUsers(data []agentData) error {
+func BanUsers(data []agentData) error {
 
 	// http request to finya.de API to ban fraud users
 	apiKey := os.Getenv("FINYA_API_KEY")

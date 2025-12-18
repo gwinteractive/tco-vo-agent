@@ -9,10 +9,10 @@ import (
 	"os"
 	"strings"
 	"time"
+	// imported as openai
 )
 
-// getFraudDecisionFromOpenAI calls OpenAI to get a fraud decision for the user.
-func getFraudDecisionFromOpenAI(systemPrompt string, userJSON []byte, model string) (*FraudDecision, error) {
+func extractDataFromAttachment(systemPrompt string, attachmentPaths []string, model string) (*FraudDecision, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		return nil, fmt.Errorf("OPENAI_API_KEY environment variable not set")
@@ -25,42 +25,58 @@ func getFraudDecisionFromOpenAI(systemPrompt string, userJSON []byte, model stri
 	if model == "" {
 		model = defaultOpenAIModel
 	}
+	if systemPrompt == "" {
+		systemPrompt = defaultSystemPrompt
+	}
+
+	input := []map[string]interface{}{}
+
+	for _, attachmentPath := range attachmentPaths {
+		fileRef, err := UploadFile(apiKey, attachmentPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to upload file: %w", err)
+		}
+		input = append(input, map[string]interface{}{"type": "input_file", "file_id": fileRef})
+	}
+
+	outputSchema := map[string]interface{}{
+		"type":     "object",
+		"required": []string{"username", "email", "agencyName", "referenceNumber", "date"},
+		"properties": map[string]interface{}{
+			"username": map[string]interface{}{
+				"type": "string",
+			},
+			"email": map[string]interface{}{
+				"type": "string",
+			},
+			"agencyName": map[string]interface{}{
+				"type": "string",
+			},
+			"referenceNumber": map[string]interface{}{
+				"type": "string",
+			},
+			"date": map[string]interface{}{
+				"type":   "string",
+				"format": "date-time",
+			},
+		},
+		"additionalProperties": false,
+	}
+
+	outputFormat := map[string]interface{}{
+		"format": map[string]interface{}{
+			"type":   "json_schema",
+			"name":   "ExtractedData",
+			"strict": true,
+			"schema": outputSchema,
+		},
+	}
 
 	requestBody := map[string]interface{}{
 		"model":        model,
-		"input":        buildUserPrompt(userJSON),
+		"input":        input,
 		"instructions": systemPrompt,
-		"text": map[string]interface{}{
-			"format": map[string]interface{}{
-				"type":   "json_schema",
-				"name":   "FraudDecision",
-				"strict": true,
-				"schema": map[string]interface{}{
-					"type":     "object",
-					"required": []string{"decision", "reason", "comment", "score"},
-					"properties": map[string]interface{}{
-						"decision": map[string]interface{}{
-							"type": "string",
-							"enum": []string{"block", "release", "human_review"},
-						},
-						"reason": map[string]interface{}{
-							"type": "string",
-							"enum": []string{"scam", "commercial", "creeper", "other"},
-						},
-						"comment": map[string]interface{}{
-							"type":      "string",
-							"maxLength": 240,
-						},
-						"score": map[string]interface{}{
-							"type":    "number",
-							"minimum": 0,
-							"maximum": 1,
-						},
-					},
-					"additionalProperties": false,
-				},
-			},
-		},
+		"text":         outputFormat,
 	}
 
 	jsonData, err := json.Marshal(requestBody)
