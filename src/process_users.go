@@ -76,20 +76,25 @@ func processTicketsAsync(ticket ZendeskTicket) {
 	// step 2 partition data by hasRequiredInfo
 	hasRequiredInfoData, noRequiredInfoData := partitionDataByHasRequiredInfo(data)
 
-	// step 3 ban fraud users
-	err = BanUsers(hasRequiredInfoData)
-	if err != nil {
-		log.Printf("Error banning fraud users: %v", err)
-	}
-
-	// step 4 reply to tickets
+	// step 3 reply to tickets with more info required
 	err = ReplyToTickets(noRequiredInfoData, "more_info_required")
 	if err != nil {
 		log.Printf("Error replying to tickets: %v", err)
 	}
 
-	// step 5 reply to tickets
-	err = ReplyToTickets(noRequiredInfoData, "user_banned")
+	// step 4 ban fraud users
+	banned, notFound, err := BanUsers(hasRequiredInfoData)
+	if err != nil {
+		log.Printf("Error banning fraud users: %v", err)
+	}
+
+	err = ReplyToTickets(notFound, "user_not_found")
+	if err != nil {
+		log.Printf("Error replying to tickets: %v", err)
+	}
+
+	// step 5 reply to tickets with user banned
+	err = ReplyToTickets(banned, "user_banned")
 	if err != nil {
 		log.Printf("Error replying to tickets: %v", err)
 		return
