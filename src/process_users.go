@@ -15,6 +15,14 @@ var (
 	banUsersFn           = BanUsers
 	replyToTicketFn      = ReplyToTicket
 	asyncTicketProcessor = processTicketsAsync
+	tagTicketFn          = AddTagsToTicket
+)
+
+const (
+	agentTag            = "tco-vo"
+	decisionTagBanned   = "tco-vo-decision-banned"
+	decisionTagNotFound = "tco-vo-decision-not-found"
+	decisionTagMoreInfo = "tco-vo-decision-more-info"
 )
 
 // ProcessTickets handles the Cloud Function HTTP request
@@ -81,9 +89,17 @@ func processTicketsAsync(ticket ZendeskTicket) {
 		log.Printf("Error extracting data from tickets: %v", errors)
 		return
 	}
+	for i := range data {
+		if data[i].Data.TicketID == "" {
+			data[i].Data.TicketID = ticket.ID
+		}
+	}
 
 	// step 2 partition data by hasRequiredInfo
 	hasRequiredInfoData, noRequiredInfoData := partitionDataByHasRequiredInfo(data)
+
+	// tag tickets that need more information so they are visible in Zendesk views
+	tagTickets(noRequiredInfoData, decisionTagMoreInfo)
 
 	// step 3 reply to tickets with more info required
 	err = replyToTicketsFn(noRequiredInfoData, "more_info_required")
@@ -97,12 +113,14 @@ func processTicketsAsync(ticket ZendeskTicket) {
 		log.Printf("Error banning fraud users: %v", err)
 	}
 
+	tagTickets(notFound, decisionTagNotFound)
 	err = replyToTicketsFn(notFound, "user_not_found")
 	if err != nil {
 		log.Printf("Error replying to tickets: %v", err)
 	}
 
 	// step 5 reply to tickets with user banned
+	tagTickets(banned, decisionTagBanned)
 	err = replyToTicketsFn(banned, "user_banned")
 	if err != nil {
 		log.Printf("Error replying to tickets: %v", err)
@@ -156,4 +174,23 @@ func ReplyToTickets(tickets []agentData, messageTemplate string) error {
 		}
 	}
 	return nil
+}
+
+// tagTickets adds a stable agent tag plus a decision-specific tag to each ticket.
+func tagTickets(tickets []agentData, decisionTag string) {
+	for _, ticket := range tickets {
+		if ticket.Data.TicketID == "" {
+			log.Printf("Skipping tag because ticket ID is empty (decision=%s)", decisionTag)
+			continue
+		}
+
+		tags := []string{agentTag}
+		if decisionTag != "" {
+			tags = append(tags, decisionTag)
+		}
+
+		if err := tagTicketFn(ticket.Data.TicketID, tags); err != nil {
+			log.Printf("Error tagging ticket %s: %v", ticket.Data.TicketID, err)
+		}
+	}
 }

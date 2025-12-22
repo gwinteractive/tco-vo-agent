@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	// imported as openai
 )
 
 func extractDataFromAttachment(systemPrompt string, attachmentPaths []string, model string) (*FraudDecision, error) {
@@ -84,7 +83,8 @@ func extractDataFromAttachment(systemPrompt string, attachmentPaths []string, mo
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.openai.com/v1/responses", bytes.NewBuffer(jsonData))
+	respURL := fmt.Sprintf("%s/v1/responses", openAIBaseURL())
+	req, err := http.NewRequest("POST", respURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

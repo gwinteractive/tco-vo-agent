@@ -162,3 +162,57 @@ func ReplyToTicket(ticketId string, message string) error {
 	defer resp.Body.Close()
 	return nil
 }
+
+// AddTagsToTicket appends the provided tags to the given ticket.
+func AddTagsToTicket(ticketId string, tags []string) error {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	apiKey := os.Getenv("ZENDESK_API_KEY")
+	if apiKey == "" {
+		return errors.New("ZENDESK_API_KEY is not set")
+	}
+	domain := os.Getenv("ZENDESK_DOMAIN")
+	if domain == "" {
+		return errors.New("ZENDESK_DOMAIN is not set")
+	}
+
+	url := fmt.Sprintf("https://%s.zendesk.com/api/v2/tickets/%s.json", domain, ticketId)
+	headers := map[string]string{
+		"Authorization": fmt.Sprintf("Bearer %s", apiKey),
+		"Content-Type":  "application/json",
+	}
+	body := map[string]interface{}{
+		"ticket": map[string]interface{}{
+			"additional_tags": tags,
+		},
+	}
+
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{}
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to tag ticket %s: status %d: %s", ticketId, resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}

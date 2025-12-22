@@ -1,0 +1,151 @@
+{
+    "view": {
+        "title": "TCO - Handled Tickets",
+        "description": "Tickets processed by tco-vo ai agent",
+        "execution": {
+            "group_by": "requester_updated_at",
+            "group_order": "desc",
+            "sort_by": "nice_id",
+            "sort_order": "desc",
+            "group": {
+                "id": "requester_updated_at",
+                "title": "Anfragender aktualisiert",
+                "filterable": true,
+                "sortable": true,
+                "order": "desc"
+            },
+            "sort": {
+                "id": "ticket_id",
+                "title": "ID",
+                "filterable": true,
+                "sortable": true,
+                "order": "desc"
+            },
+            "columns": [
+                {
+                    "id": "custom_status_id",
+                    "title": "Ticketstatus",
+                    "filterable": true,
+                    "sortable": false
+                },
+                {
+                    "id": "subject",
+                    "title": "Betreff",
+                    "filterable": true,
+                    "sortable": true
+                },
+                {
+                    "id": "requester",
+                    "title": "Anfragender",
+                    "filterable": true,
+                    "sortable": true
+                },
+                {
+                    "id": "via",
+                    "title": "Kanal",
+                    "filterable": true,
+                    "sortable": true
+                },
+                {
+                    "id": "created",
+                    "title": "Angefragt",
+                    "filterable": false,
+                    "sortable": true
+                },
+                {
+                    "id": "requester_updated_at",
+                    "title": "Anfragender aktualisiert",
+                    "filterable": true,
+                    "sortable": true
+                },
+                {
+                    "id": "type",
+                    "title": "Typ",
+                    "filterable": true,
+                    "sortable": true
+                }
+            ],
+            "fields": [
+                {
+                    "id": "custom_status_id",
+                    "title": "Ticketstatus",
+                    "filterable": true,
+                    "sortable": false
+                },
+                {
+                    "id": "subject",
+                    "title": "Betreff",
+                    "filterable": true,
+                    "sortable": true
+                },
+                {
+                    "id": "requester",
+                    "title": "Anfragender",
+                    "filterable": true,
+                    "sortable": true
+                },
+                {
+                    "id": "via",
+                    "title": "Kanal",
+                    "filterable": true,
+                    "sortable": true
+                },
+                {
+                    "id": "created",
+                    "title": "Angefragt",
+                    "filterable": false,
+                    "sortable": true
+                },
+                {
+                    "id": "requester_updated_at",
+                    "title": "Anfragender aktualisiert",
+                    "filterable": true,
+                    "sortable": true
+                },
+                {
+                    "id": "type",
+                    "title": "Typ",
+                    "filterable": true,
+                    "sortable": true
+                }
+            ],
+            "custom_fields": []
+        },
+        "conditions": {
+            "all": [
+                {
+                    "field": "status",
+                    "operator": "less_than",
+                    "value": "solved"
+                },
+                {
+                    "field": "current_tags",
+                    "operator": "includes",
+                    "value": "tco-vo"
+                },
+                {
+                    "field": "support_type",
+                    "operator": "is",
+                    "value": "0"
+                }
+            ],
+            "any": [
+                {
+                    "field": "current_tags",
+                    "operator": "includes",
+                    "value": "tco-vo-decision-banned"
+                },
+                {
+                    "field": "current_tags",
+                    "operator": "includes",
+                    "value": "tco-vo-decision-not-found"
+                },
+                {
+                    "field": "current_tags",
+                    "operator": "includes",
+                    "value": "tco-vo-decision-more-info"
+                }
+            ]
+        }
+    }
+}

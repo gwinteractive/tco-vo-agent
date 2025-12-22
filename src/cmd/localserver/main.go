@@ -18,7 +18,7 @@ func main() {
 	http.HandleFunc("/", tco_vo_agent.ProcessTickets)
 
 	// populate env from .env file
-	err := godotenv.Load("../../../.env")
+	err := godotenv.Load("../../.env")
 	if err != nil {
 		log.Fatalf("env.Load: %v", err)
 	}

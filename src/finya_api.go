@@ -18,7 +18,8 @@ func BanUsers(data []agentData) (bannedUsers []agentData, notFoundUsers []agentD
 		return nil, nil, errors.New("FINYA_API_KEY is not set")
 	}
 
-	url := "https://www.finya.de/api/v1/users/ban"
+	// url := "https://www.finya.de/api/v1/users/ban"
+	url := "https://local.finya.de/api/v1/users/ban"
 	headers := map[string]string{
 		"Authorization": fmt.Sprintf("Bearer %s", apiKey),
 		"Content-Type":  "application/json",

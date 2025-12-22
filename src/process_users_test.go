@@ -1,6 +1,9 @@
 package tco_vo_agent
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestCheckRequiredInfo(t *testing.T) {
 	tests := []struct {
@@ -59,5 +62,112 @@ func TestPartitionDataByHasRequiredInfo(t *testing.T) {
 	}
 	if len(noRequired) != 1 || noRequired[0].Reason != "email and username are required" {
 		t.Fatalf("expected missing item with reason, got %+v", noRequired)
+	}
+}
+
+func TestReplyToTicketsTemplates(t *testing.T) {
+	orig := replyToTicketFn
+	t.Cleanup(func() {
+		replyToTicketFn = orig
+	})
+
+	tickets := []agentData{
+		{Data: FraudDecision{TicketID: "123"}},
+		{Data: FraudDecision{TicketID: "456"}},
+	}
+
+	tests := []struct {
+		name         string
+		template     string
+		expectedBody string
+	}{
+		{name: "more info required", template: "more_info_required", expectedBody: moreInfoRequiredMessage},
+		{name: "user banned", template: "user_banned", expectedBody: userBannedMessage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls []struct {
+				ticketID string
+				message  string
+			}
+
+			replyToTicketFn = func(ticketId string, message string) error {
+				calls = append(calls, struct {
+					ticketID string
+					message  string
+				}{ticketID: ticketId, message: message})
+				return nil
+			}
+
+			if err := ReplyToTickets(tickets, tt.template); err != nil {
+				t.Fatalf("ReplyToTickets returned error: %v", err)
+			}
+
+			if len(calls) != len(tickets) {
+				t.Fatalf("expected %d replies, got %d", len(tickets), len(calls))
+			}
+
+			for i, call := range calls {
+				if call.ticketID != tickets[i].Data.TicketID {
+					t.Fatalf("unexpected ticketID at call %d: got %s, want %s", i, call.ticketID, tickets[i].Data.TicketID)
+				}
+				if call.message != tt.expectedBody {
+					t.Fatalf("unexpected message at call %d: got %q, want %q", i, call.message, tt.expectedBody)
+				}
+			}
+		})
+	}
+}
+
+func TestReplyToTicketsInvalidTemplate(t *testing.T) {
+	orig := replyToTicketFn
+	t.Cleanup(func() {
+		replyToTicketFn = orig
+	})
+
+	replyToTicketFn = func(ticketId string, message string) error {
+		t.Fatalf("replyToTicketFn should not be called for invalid template")
+		return nil
+	}
+
+	if err := ReplyToTickets([]agentData{{Data: FraudDecision{TicketID: "noop"}}}, "unknown_template"); err == nil {
+		t.Fatalf("expected error for invalid template")
+	}
+}
+
+func TestReplyToTicketsStopsOnError(t *testing.T) {
+	orig := replyToTicketFn
+	t.Cleanup(func() {
+		replyToTicketFn = orig
+	})
+
+	tickets := []agentData{
+		{Data: FraudDecision{TicketID: "a"}},
+		{Data: FraudDecision{TicketID: "b"}},
+		{Data: FraudDecision{TicketID: "c"}},
+	}
+
+	expectedErr := errors.New("reply failed")
+	var called []string
+
+	replyToTicketFn = func(ticketId string, message string) error {
+		called = append(called, ticketId)
+		if ticketId == "b" {
+			return expectedErr
+		}
+		return nil
+	}
+
+	err := ReplyToTickets(tickets, "user_banned")
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected error %v, got %v", expectedErr, err)
+	}
+
+	if len(called) != 2 {
+		t.Fatalf("expected to stop after second call, got calls: %v", called)
+	}
+	if called[0] != "a" || called[1] != "b" {
+		t.Fatalf("unexpected call order: %v", called)
 	}
 }

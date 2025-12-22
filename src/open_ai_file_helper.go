@@ -9,7 +9,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+func openAIBaseURL() string {
+	base := strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
+	if base == "" {
+		return "https://api.openai.com"
+	}
+	return strings.TrimRight(base, "/")
+}
 
 func UploadFile(apiKey, filePath string) (string, error) {
 	file, err := os.Open(filePath)
@@ -42,7 +51,9 @@ func UploadFile(apiKey, filePath string) (string, error) {
 		"Content-Type": writer.FormDataContentType(),
 	}
 
-	data, err := httpRequest(apiKey, "POST", "https://api.openai.com/v1/files", headers, &body)
+	url := fmt.Sprintf("%s/v1/files", openAIBaseURL())
+
+	data, err := httpRequest(apiKey, "POST", url, headers, &body)
 	if err != nil {
 		return "", err
 	}
@@ -57,7 +68,7 @@ func UploadFile(apiKey, filePath string) (string, error) {
 	return result.ID, nil
 }
 func DownloadFile(apiKey, fileID string) (string, error) {
-	url := fmt.Sprintf("https://api.openai.com/v1/files/%s/content", fileID)
+	url := fmt.Sprintf("%s/v1/files/%s/content", openAIBaseURL(), fileID)
 	data, err := httpRequest(apiKey, "GET", url, nil, nil)
 	if err != nil {
 		return "", err
@@ -66,6 +77,9 @@ func DownloadFile(apiKey, fileID string) (string, error) {
 }
 
 func httpRequest(apiKey, method, url string, headers map[string]string, body io.Reader) ([]byte, error) {
+	if headers == nil {
+		headers = map[string]string{}
+	}
 	headers["Authorization"] = fmt.Sprintf("Bearer %s", apiKey)
 	client := &http.Client{}
 	req, err := http.NewRequest(method, url, body)
