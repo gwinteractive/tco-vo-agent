@@ -2,7 +2,9 @@ package tco_vo_agent
 
 import (
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 )
 
 func TestCheckRequiredInfo(t *testing.T) {
@@ -67,22 +69,82 @@ func TestPartitionDataByHasRequiredInfo(t *testing.T) {
 
 func TestReplyToTicketsTemplates(t *testing.T) {
 	orig := replyToTicketFn
+	origNow := nowFn
 	t.Cleanup(func() {
 		replyToTicketFn = orig
+		nowFn = origNow
 	})
 
-	tickets := []agentData{
-		{Data: FraudDecision{TicketID: "123"}},
-		{Data: FraudDecision{TicketID: "456"}},
+	nowFn = func() time.Time {
+		return time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	}
+	actionTime := nowFn().UTC().Format(time.RFC3339)
 
 	tests := []struct {
-		name         string
-		template     string
-		expectedBody string
+		name     string
+		template string
+		ticket   agentData
+		expected string
 	}{
-		{name: "more info required", template: "more_info_required", expectedBody: moreInfoRequiredMessage},
-		{name: "user banned", template: "user_banned", expectedBody: userBannedMessage},
+		{
+			name:     "more info required",
+			template: "more_info_required",
+			ticket: agentData{
+				Data: FraudDecision{
+					TicketID:        "123",
+					AgencyName:      "Bundeskriminalamt",
+					ReferenceNumber: "REF-123",
+					Date:            "2024-01-01",
+				},
+				Reason: "email and username are required",
+			},
+			expected: fmt.Sprintf(
+				moreInfoRequiredMessage,
+				"REF-123",
+				"Bundeskriminalamt",
+				"2024-01-01",
+				"email and username are required",
+			),
+		},
+		{
+			name:     "user not found",
+			template: "user_not_found",
+			ticket: agentData{
+				Data: FraudDecision{
+					TicketID:        "456",
+					AgencyName:      "Bundeskriminalamt",
+					ReferenceNumber: "REF-456",
+					Username:        "missinguser",
+					Email:           "missing@example.com",
+				},
+			},
+			expected: fmt.Sprintf(
+				userNotFoundMessage,
+				"REF-456",
+				"Bundeskriminalamt",
+				"username: missinguser / email: missing@example.com",
+			),
+		},
+		{
+			name:     "user banned",
+			template: "user_banned",
+			ticket: agentData{
+				Data: FraudDecision{
+					TicketID:        "789",
+					AgencyName:      "Bundeskriminalamt",
+					ReferenceNumber: "REF-789",
+					Username:        "baduser",
+					Email:           "bad@example.com",
+				},
+			},
+			expected: fmt.Sprintf(
+				userBannedMessage,
+				"REF-789",
+				"Bundeskriminalamt",
+				"username: baduser / email: bad@example.com",
+				actionTime,
+			),
+		},
 	}
 
 	for _, tt := range tests {
@@ -100,21 +162,18 @@ func TestReplyToTicketsTemplates(t *testing.T) {
 				return nil
 			}
 
-			if err := ReplyToTickets(tickets, tt.template); err != nil {
+			if err := ReplyToTickets([]agentData{tt.ticket}, tt.template); err != nil {
 				t.Fatalf("ReplyToTickets returned error: %v", err)
 			}
 
-			if len(calls) != len(tickets) {
-				t.Fatalf("expected %d replies, got %d", len(tickets), len(calls))
+			if len(calls) != 1 {
+				t.Fatalf("expected 1 reply, got %d", len(calls))
 			}
 
-			for i, call := range calls {
-				if call.ticketID != tickets[i].Data.TicketID {
-					t.Fatalf("unexpected ticketID at call %d: got %s, want %s", i, call.ticketID, tickets[i].Data.TicketID)
-				}
-				if call.message != tt.expectedBody {
-					t.Fatalf("unexpected message at call %d: got %q, want %q", i, call.message, tt.expectedBody)
-				}
+			if call := calls[0]; call.ticketID != tt.ticket.Data.TicketID {
+				t.Fatalf("unexpected ticketID: got %s, want %s", call.ticketID, tt.ticket.Data.TicketID)
+			} else if call.message != tt.expected {
+				t.Fatalf("unexpected message: got %q, want %q", call.message, tt.expected)
 			}
 		})
 	}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 )
 
 var (
@@ -65,8 +66,38 @@ func ProcessTickets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ticketData, err := FetchZendeskTickets([]string{ticketInfo.ID})
+	if err != nil {
+		log.Printf("Error fetching ticket data: %v", err)
+		http.Error(w, "Error fetching ticket data", http.StatusInternalServerError)
+		return
+	}
+	if len(ticketData) == 0 {
+		log.Printf("Ticket not found: %s", ticketInfo.ID)
+		http.Error(w, "Ticket not found", http.StatusNotFound)
+		return
+	}
+
+	hasCorrectRecipient := func(ticket ZendeskTicket) bool {
+		return ticket.Recipient != nil && *ticket.Recipient == os.Getenv("ZENDESK_TCO_EMAIL")
+	}
+
+	correctTickets := []ZendeskTicket{}
+	incorrectTickets := []ZendeskTicket{}
+	for _, ticket := range ticketData {
+		if hasCorrectRecipient(ticket) {
+			correctTickets = append(correctTickets, ticket)
+		} else {
+			incorrectTickets = append(incorrectTickets, ticket)
+		}
+	}
+
+
 	// Process each user
-	go asyncTicketProcessor(ticketInfo)
+	for _, ticket := range correctTickets {
+		go asyncTicketProcessor(ticket)
+	}
+
 
 	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
@@ -160,15 +191,22 @@ func checkRequiredInfo(data agentData) (bool, string) {
 func ReplyToTickets(tickets []agentData, messageTemplate string) error {
 	var message string
 	switch messageTemplate {
-	case "more_info_required":
-		message = moreInfoRequiredMessage
-	case "user_banned":
-		message = userBannedMessage
-	default:
-		return errors.New("invalid message template")
+		case "more_info_required":
+			message = moreInfoRequiredMessage
+		case "user_not_found":
+			message = userNotFoundMessage
+		case "user_banned":
+			message = userBannedMessage
+		default:
+			return errors.New("invalid message template")
 	}
 	for _, ticket := range tickets {
-		err := replyToTicketFn(ticket.Data.TicketID, message)
+		var err error
+		message, err = buildMessage(messageTemplate, ticket)
+		if err != nil {
+			return err
+		}
+		err = replyToTicketFn(ticket.Data.TicketID, message)
 		if err != nil {
 			return err
 		}
