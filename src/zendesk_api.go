@@ -18,6 +18,7 @@ type ZendeskTicket struct {
 	Status      string `json:"status"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
+	Recipient   *string `json:"recipient,omitempty"`
 }
 type Attachment struct {
 	ContentType string `json:"content_type"`
