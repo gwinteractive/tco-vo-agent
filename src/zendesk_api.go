@@ -247,19 +247,24 @@ func ReplyToTicket(ticketId string, message string) error {
 		return errors.New("ZENDESK_DOMAIN is not set")
 	}
 
-	url := fmt.Sprintf("https://%s.zendesk.com/api/v2/tickets/%s/comments.json", domain, ticketId)
+	url := fmt.Sprintf("https://%s.zendesk.com/api/v2/tickets/%s.json", domain, ticketId)
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
 	body := map[string]interface{}{
-		"comment": message,
+		"ticket": map[string]interface{}{
+			"comment": map[string]interface{}{
+				"body":   message,
+				"public": true,
+			},
+		},
 	}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
 	client := &http.Client{}
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return err
 	}
@@ -272,6 +277,12 @@ func ReplyToTicket(ticketId string, message string) error {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to add comment to ticket %s: status %d: %s", ticketId, resp.StatusCode, string(respBody))
+	}
+
 	return nil
 }
 
@@ -560,4 +571,180 @@ func GetTicketTags(ticketId string) ([]string, error) {
 	}
 
 	return response.Ticket.Tags, nil
+}
+
+// IsTicketInTCOView checks if a ticket appears in the TCO view by querying the view directly.
+// First finds the view by name "TCO - Handled Tickets", then executes it and checks if the ticket is in the results.
+func IsTicketInTCOView(ticketId string) (bool, error) {
+	apiKey := os.Getenv("ZENDESK_API_KEY")
+	if apiKey == "" {
+		return false, errors.New("ZENDESK_API_KEY is not set")
+	}
+	userEmail := os.Getenv("ZENDESK_USER")
+	if userEmail == "" {
+		return false, errors.New("ZENDESK_USER is not set")
+	}
+	domain := os.Getenv("ZENDESK_DOMAIN")
+	if domain == "" {
+		return false, errors.New("ZENDESK_DOMAIN is not set")
+	}
+
+	client := &http.Client{}
+
+	// Step 1: Find the TCO view by name
+	viewsURL := fmt.Sprintf("https://%s.zendesk.com/api/v2/views.json", domain)
+	req, err := http.NewRequest("GET", viewsURL, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(userEmail+"/token", apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	if resp.StatusCode >= 300 {
+		return false, fmt.Errorf("failed to list views: status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var viewsResponse struct {
+		Views []struct {
+			ID    interface{} `json:"id"` // ID can be number or string
+			Title string       `json:"title"`
+		} `json:"views"`
+	}
+	if err := json.Unmarshal(body, &viewsResponse); err != nil {
+		return false, fmt.Errorf("failed to parse views response: %w", err)
+	}
+
+	// Find the TCO view
+	var viewID string
+	for _, view := range viewsResponse.Views {
+		if view.Title == "TCO - Handled Tickets" {
+			switch v := view.ID.(type) {
+			case string:
+				viewID = v
+			case float64:
+				viewID = fmt.Sprintf("%.0f", v)
+			case int:
+				viewID = fmt.Sprintf("%d", v)
+			case int64:
+				viewID = fmt.Sprintf("%d", v)
+			default:
+				viewID = fmt.Sprintf("%v", v)
+			}
+			break
+		}
+	}
+
+	if viewID == "" {
+		// Log available view titles for debugging
+		viewTitles := make([]string, 0, len(viewsResponse.Views))
+		for _, view := range viewsResponse.Views {
+			viewTitles = append(viewTitles, view.Title)
+		}
+		return false, fmt.Errorf("TCO view 'TCO - Handled Tickets' not found. Available views: %v", viewTitles)
+	}
+
+	// Step 2: Execute the view to get tickets
+	executeURL := fmt.Sprintf("https://%s.zendesk.com/api/v2/views/%s/execute.json", domain, viewID)
+	req, err = http.NewRequest("GET", executeURL, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(userEmail+"/token", apiKey)
+
+	resp, err = client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	if resp.StatusCode >= 300 {
+		return false, fmt.Errorf("failed to execute view: status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// The view execute response format: rows contain ticket objects with nested id
+	var executeResponse struct {
+		Rows []struct {
+			Ticket struct {
+				ID interface{} `json:"id"` // ID is nested in ticket object
+			} `json:"ticket"`
+			TicketID interface{} `json:"ticket_id"` // Fallback: direct ticket_id field
+			ID       interface{} `json:"id"`        // Fallback: direct id field
+		} `json:"rows"`
+		// Some views return tickets directly
+	
+	}
+	if err := json.Unmarshal(body, &executeResponse); err != nil {
+		return false, fmt.Errorf("failed to parse view execute response: %w, body: %s", err, string(body))
+	}
+
+	// Check if our ticket ID is in the rows (most common format)
+	for _, row := range executeResponse.Rows {
+		var rowTicketID string
+		// Try ticket.id first (the actual format), then ticket_id, then id
+		var idValue interface{}
+		if row.Ticket.ID != nil {
+			idValue = row.Ticket.ID
+		} else if row.TicketID != nil {
+			idValue = row.TicketID
+		} else if row.ID != nil {
+			idValue = row.ID
+		}
+		if idValue == nil {
+			continue
+		}
+		switch v := idValue.(type) {
+		case string:
+			rowTicketID = v
+		case float64:
+			rowTicketID = fmt.Sprintf("%.0f", v)
+		case int:
+			rowTicketID = fmt.Sprintf("%d", v)
+		case int64:
+			rowTicketID = fmt.Sprintf("%d", v)
+		default:
+			rowTicketID = fmt.Sprintf("%v", v)
+		}
+		if rowTicketID == ticketId {
+			return true, nil
+		}
+	}
+
+	// Ticket not found in view. Check if ticket meets view criteria to provide helpful error
+	tags, _ := GetTicketTags(ticketId)
+	hasAgentTag := false
+	hasDecisionTag := false
+	for _, tag := range tags {
+		if tag == "tco-vo" {
+			hasAgentTag = true
+		}
+		if tag == "tco-vo-decision-banned" || tag == "tco-vo-decision-not-found" || tag == "tco-vo-decision-more-info" {
+			hasDecisionTag = true
+		}
+	}
+	
+	if !hasAgentTag {
+		return false, fmt.Errorf("ticket not in TCO view: missing required tag 'tco-vo'. Current tags: %v", tags)
+	}
+	if !hasDecisionTag {
+		return false, fmt.Errorf("ticket not in TCO view: missing decision tag. Current tags: %v", tags)
+	}
+
+	return false, fmt.Errorf("ticket not in TCO view (may need time to index or may not meet other criteria like status or support_type). Current tags: %v", tags)
 }
