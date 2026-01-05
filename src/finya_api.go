@@ -2,13 +2,28 @@ package tco_vo_agent
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 )
+
+type result struct {
+	UserId string `json:"userId"`
+	Decision string `json:"decision"`
+}
+
+type response struct {
+	Success bool `json:"success"`
+	Data    struct {
+		Banned   []result `json:"banned"`
+		NotFound []result `json:"not_found"`
+	} `json:"data"`
+}
 
 func BanUsers(data []agentData) (bannedUsers []agentData, notFoundUsers []agentData, err error) {
 
@@ -18,8 +33,9 @@ func BanUsers(data []agentData) (bannedUsers []agentData, notFoundUsers []agentD
 		return nil, nil, errors.New("FINYA_API_KEY is not set")
 	}
 
-	// url := "https://www.finya.de/api/v1/users/ban"
-	url := "https://local.finya.de/api/v1/users/ban"
+	realm := "local"
+
+	url := fmt.Sprintf("https://%s.finya.de/api/tco/ban", realm)
 	headers := map[string]string{
 		"Authorization": fmt.Sprintf("Bearer %s", apiKey),
 		"Content-Type":  "application/json",
@@ -28,10 +44,17 @@ func BanUsers(data []agentData) (bannedUsers []agentData, notFoundUsers []agentD
 		"users": data,
 	}
 	jsonBody, err := json.Marshal(body)
+	log.Printf("jsonBody: %s", string(jsonBody))
 	if err != nil {
 		return nil, nil, err
 	}
 	client := &http.Client{}
+	// dont verify the certificate
+	if realm == "local" {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, nil, err
@@ -49,13 +72,10 @@ func BanUsers(data []agentData) (bannedUsers []agentData, notFoundUsers []agentD
 	if err != nil {
 		return nil, nil, err
 	}
-	var response struct {
-		Success bool `json:"success"`
-		Data    struct {
-			Banned   []string `json:"banned"`
-			NotFound []string `json:"not_found"`
-		} `json:"data"`
-	}
+
+	var response response
+
+	log.Printf("bodyBytes: %s", string(bodyBytes))
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		return nil, nil, err
 	}
@@ -76,13 +96,13 @@ func BanUsers(data []agentData) (bannedUsers []agentData, notFoundUsers []agentD
 		return nil
 	}
 
-	for _, userId := range response.Data.Banned {
-		if user := findUserByID(userId); user != nil {
+	for _, bannedUser := range response.Data.Banned {
+		if user := findUserByID(bannedUser.UserId); user != nil {
 			bannedUsers = append(bannedUsers, *user)
 		}
 	}
-	for _, userId := range response.Data.NotFound {
-		if user := findUserByID(userId); user != nil {
+	for _, notFoundUser := range response.Data.NotFound {
+		if user := findUserByID(notFoundUser.UserId); user != nil {
 			notFoundUsers = append(notFoundUsers, *user)
 		}
 	}

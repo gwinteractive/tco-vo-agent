@@ -68,12 +68,12 @@ func TestProcessTicketsZendeskE2E(t *testing.T) {
 	origReplyToTickets := replyToTicketsFn
 	origAsync := asyncTicketProcessor
 
-	// Track if banUsersFn was called (should be mocked to avoid actual banning)
+	// Track if banUsersFn was called
 	var banUsersCalled bool
 	var banUsersCallData []agentData
 	var banUsersMu sync.Mutex
 
-	// Mock banUsersFn to avoid actual banning
+	// Wrap banUsersFn to track calls but use real implementation
 	banUsersFn = func(data []agentData) (bannedUsers []agentData, notFoundUsers []agentData, err error) {
 		banUsersMu.Lock()
 		banUsersCalled = true
@@ -81,11 +81,8 @@ func TestProcessTicketsZendeskE2E(t *testing.T) {
 		copy(banUsersCallData, data)
 		banUsersMu.Unlock()
 
-		// Simulate: first user gets banned, second user not found
-		if len(data) > 0 {
-			return []agentData{data[0]}, []agentData{}, nil
-		}
-		return []agentData{}, []agentData{}, nil
+		// Call the real implementation
+		return origBanUsers(data)
 	}
 
 	// Mock extractDataFn to return test data
@@ -100,7 +97,7 @@ func TestProcessTicketsZendeskE2E(t *testing.T) {
 		return []agentData{
 			{
 				Data: FraudDecision{
-					Username:        "testuser",
+					Username:        "_TCO_TEST_USER_",
 					Email:           "test@example.com",
 					AgencyName:      "TestAgency",
 					ReferenceNumber: "REF-12345",
@@ -232,7 +229,7 @@ func TestProcessTicketsZendeskE2E(t *testing.T) {
 	} else if len(banUsersCallData) == 0 {
 		t.Error("banUsersFn was called with no data")
 	} else {
-		t.Logf("banUsersFn was called with %d users (mocked, no actual banning)", len(banUsersCallData))
+		t.Logf("banUsersFn was called with %d users", len(banUsersCallData))
 	}
 	banUsersMu.Unlock()
 

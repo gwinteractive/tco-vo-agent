@@ -19,9 +19,9 @@ type agentConfig struct {
 }
 
 type agentData struct {
-	Agent  agentConfig
-	Data   FraudDecision
-	Reason string
+	Agent  agentConfig `json:"agent"`
+	Data   FraudDecision `json:"data"`
+	Reason string        `json:"reason"`
 }
 
 type agentError struct {
