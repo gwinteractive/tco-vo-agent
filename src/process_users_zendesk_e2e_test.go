@@ -25,7 +25,7 @@ func TestProcessTicketsZendeskE2E(t *testing.T) {
 		"../../.env.test",
 		"../../.env.local",
 	}
-	
+
 	envLoaded := false
 	for _, envFile := range envFiles {
 		if err := godotenv.Load(envFile); err == nil {
@@ -67,6 +67,7 @@ func TestProcessTicketsZendeskE2E(t *testing.T) {
 	origBanUsers := banUsersFn
 	origReplyToTickets := replyToTicketsFn
 	origAsync := asyncTicketProcessor
+	origNotifySlack := notifySlackFn
 
 	// Track if banUsersFn was called
 	var banUsersCalled bool
@@ -127,6 +128,11 @@ func TestProcessTicketsZendeskE2E(t *testing.T) {
 		return ReplyToTickets(tickets, messageTemplate)
 	}
 
+	// Avoid posting to Slack during tests
+	notifySlackFn = func(result processResult) error {
+		return nil
+	}
+
 	// Setup async processing with wait group
 	wg := &sync.WaitGroup{}
 	asyncTicketProcessor = func(ticket ZendeskTicket) {
@@ -144,6 +150,7 @@ func TestProcessTicketsZendeskE2E(t *testing.T) {
 		banUsersFn = origBanUsers
 		replyToTicketsFn = origReplyToTickets
 		asyncTicketProcessor = origAsync
+		notifySlackFn = origNotifySlack
 	})
 
 	// Step 1: Create ticket in Zendesk
@@ -360,4 +367,3 @@ func TestProcessTicketsZendeskE2E(t *testing.T) {
 
 	t.Log("E2E test completed successfully")
 }
-

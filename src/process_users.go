@@ -3,6 +3,7 @@ package tco_vo_agent
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -17,6 +18,7 @@ var (
 	replyToTicketFn      = ReplyToTicket
 	asyncTicketProcessor = processTicketsAsync
 	tagTicketFn          = AddTagsToTicket
+	notifySlackFn        = SendSlackNotification
 )
 
 const (
@@ -109,7 +111,7 @@ func ProcessTickets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	if len(ticketData) == 0 {
 		log.Printf("Ticket not found: %s", ticketInfo.ID)
 		http.Error(w, "Ticket not found", http.StatusNotFound)
@@ -148,17 +150,15 @@ func ProcessTickets(w http.ResponseWriter, r *http.Request) {
 			incorrectTickets = append(incorrectTickets, ticket)
 		}
 	}
-	
+
 	if len(correctTickets) == 0 && len(ticketData) > 0 {
 		log.Printf("Warning: No tickets matched recipient filter. Total tickets: %d", len(ticketData))
 	}
-
 
 	// Process each user
 	for _, ticket := range correctTickets {
 		go asyncTicketProcessor(ticket)
 	}
-
 
 	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
@@ -167,18 +167,41 @@ func ProcessTickets(w http.ResponseWriter, r *http.Request) {
 
 func processTicketsAsync(ticket ZendeskTicket) {
 
+	result := processResult{
+		TicketID: ticket.ID,
+		Subject:  ticket.Subject,
+	}
+	recordError := func(err error, context string) {
+		if err == nil {
+			return
+		}
+		if context != "" {
+			err = fmt.Errorf("%s: %w", context, err)
+		}
+		if result.Error == nil {
+			result.Error = err
+		}
+	}
+	defer func() {
+		if err := notifySlackFn(result); err != nil {
+			log.Printf("Error sending Slack notification: %v", err)
+		}
+	}()
+
 	agents := loadAgentConfigs()
 	// step 1 extract data from tickets
 
 	attachmentPaths, err := getAttachmentsFn(ticket.ID)
 	if err != nil {
 		log.Printf("Error getting attachments: %v", err)
+		recordError(err, "getting attachments")
 		return
 	}
 
-	data, errors := extractDataFn(attachmentPaths, agents)
-	if len(errors) > 0 {
-		log.Printf("Error extracting data from tickets: %v", errors)
+	data, extractionErrors := extractDataFn(attachmentPaths, agents)
+	if len(extractionErrors) > 0 {
+		log.Printf("Error extracting data from tickets: %v", extractionErrors)
+		recordError(fmt.Errorf("error extracting data from tickets: %v", extractionErrors), "")
 		return
 	}
 	for i := range data {
@@ -189,6 +212,7 @@ func processTicketsAsync(ticket ZendeskTicket) {
 
 	// step 2 partition data by hasRequiredInfo
 	hasRequiredInfoData, noRequiredInfoData := partitionDataByHasRequiredInfo(data)
+	result.MoreInfo = noRequiredInfoData
 
 	// tag tickets that need more information so they are visible in Zendesk views
 	tagTickets(noRequiredInfoData, decisionTagMoreInfo)
@@ -197,18 +221,23 @@ func processTicketsAsync(ticket ZendeskTicket) {
 	err = replyToTicketsFn(noRequiredInfoData, "more_info_required")
 	if err != nil {
 		log.Printf("Error replying to tickets: %v", err)
+		recordError(err, "replying to tickets missing info")
 	}
 
 	// step 4 ban fraud users
 	banned, notFound, err := banUsersFn(hasRequiredInfoData)
 	if err != nil {
 		log.Printf("Error banning fraud users: %v", err)
+		recordError(err, "banning users")
 	}
+	result.Banned = banned
+	result.NotFound = notFound
 
 	tagTickets(notFound, decisionTagNotFound)
 	err = replyToTicketsFn(notFound, "user_not_found")
 	if err != nil {
 		log.Printf("Error replying to tickets: %v", err)
+		recordError(err, "replying to not-found users")
 	}
 
 	// step 5 reply to tickets with user banned
@@ -216,6 +245,7 @@ func processTicketsAsync(ticket ZendeskTicket) {
 	err = replyToTicketsFn(banned, "user_banned")
 	if err != nil {
 		log.Printf("Error replying to tickets: %v", err)
+		recordError(err, "replying to banned users")
 		return
 	}
 }
@@ -250,23 +280,24 @@ func checkRequiredInfo(data agentData) (bool, string) {
 }
 
 type ReplyToTicketTemplate string
+
 const (
 	ReplyToTicketTemplateMoreInfoRequired ReplyToTicketTemplate = "more_info_required"
-	ReplyToTicketTemplateUserNotFound ReplyToTicketTemplate = "user_not_found"
-	ReplyToTicketTemplateUserBanned ReplyToTicketTemplate = "user_banned"
+	ReplyToTicketTemplateUserNotFound     ReplyToTicketTemplate = "user_not_found"
+	ReplyToTicketTemplateUserBanned       ReplyToTicketTemplate = "user_banned"
 )
 
 func ReplyToTickets(tickets []agentData, messageTemplate ReplyToTicketTemplate) error {
 	var message string
 	switch messageTemplate {
-		case "more_info_required":
-			message = moreInfoRequiredMessage
-		case "user_not_found":
-			message = userNotFoundMessage
-		case "user_banned":
-			message = userBannedMessage
-		default:
-			return errors.New("invalid message template")
+	case "more_info_required":
+		message = moreInfoRequiredMessage
+	case "user_not_found":
+		message = userNotFoundMessage
+	case "user_banned":
+		message = userBannedMessage
+	default:
+		return errors.New("invalid message template")
 	}
 	for _, ticket := range tickets {
 		var err error

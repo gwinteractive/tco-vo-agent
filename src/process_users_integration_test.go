@@ -10,12 +10,14 @@ func TestProcessTicketsAsyncPipeline(t *testing.T) {
 	origExtractData := extractDataFn
 	origBanUsers := banUsersFn
 	origReplyToTickets := replyToTicketsFn
+	origNotifySlack := notifySlackFn
 
 	t.Cleanup(func() {
 		getAttachmentsFn = origGetAttachments
 		extractDataFn = origExtractData
 		banUsersFn = origBanUsers
 		replyToTicketsFn = origReplyToTickets
+		notifySlackFn = origNotifySlack
 	})
 
 	getAttachmentsFn = func(ticketId string) ([]string, error) {
@@ -60,7 +62,15 @@ func TestProcessTicketsAsyncPipeline(t *testing.T) {
 		return nil
 	}
 
-	processTicketsAsync(ZendeskTicket{ID: "123"})
+	var notifyCalls int
+	var notifiedResult processResult
+	notifySlackFn = func(result processResult) error {
+		notifyCalls++
+		notifiedResult = result
+		return nil
+	}
+
+	processTicketsAsync(ZendeskTicket{ID: "123", Subject: "test subject"})
 
 	if len(replies) != 3 {
 		t.Fatalf("expected 3 reply calls, got %d", len(replies))
@@ -74,5 +84,21 @@ func TestProcessTicketsAsyncPipeline(t *testing.T) {
 	}
 	if replies[2].template != "user_banned" || len(replies[2].tickets) != 1 || replies[2].tickets[0].Data.TicketID != "123" {
 		t.Fatalf("unexpected third reply call: %+v", replies[2])
+	}
+
+	if notifyCalls != 1 {
+		t.Fatalf("expected notifier to be called once, got %d", notifyCalls)
+	}
+	if notifiedResult.TicketID != "123" {
+		t.Fatalf("unexpected ticket ID in notification: %s", notifiedResult.TicketID)
+	}
+	if notifiedResult.Subject != "test subject" {
+		t.Fatalf("unexpected subject in notification: %s", notifiedResult.Subject)
+	}
+	if len(notifiedResult.Banned) != 1 || len(notifiedResult.NotFound) != 1 || len(notifiedResult.MoreInfo) != 1 {
+		t.Fatalf("unexpected notification payload: %+v", notifiedResult)
+	}
+	if notifiedResult.Error != nil {
+		t.Fatalf("did not expect error in notification, got %v", notifiedResult.Error)
 	}
 }
