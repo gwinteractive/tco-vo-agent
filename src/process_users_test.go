@@ -82,13 +82,13 @@ func TestReplyToTicketsTemplates(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		template string
+		template ReplyToTicketTemplate
 		ticket   agentData
 		expected string
 	}{
 		{
 			name:     "more info required",
-			template: "more_info_required",
+			template: ReplyToTicketTemplateMoreInfoRequired,
 			ticket: agentData{
 				Data: FraudDecision{
 					TicketID:        "123",
@@ -108,7 +108,7 @@ func TestReplyToTicketsTemplates(t *testing.T) {
 		},
 		{
 			name:     "user not found",
-			template: "user_not_found",
+			template: ReplyToTicketTemplateUserNotFound,
 			ticket: agentData{
 				Data: FraudDecision{
 					TicketID:        "456",
@@ -127,7 +127,7 @@ func TestReplyToTicketsTemplates(t *testing.T) {
 		},
 		{
 			name:     "user banned",
-			template: "user_banned",
+			template: ReplyToTicketTemplateUserBanned,
 			ticket: agentData{
 				Data: FraudDecision{
 					TicketID:        "789",

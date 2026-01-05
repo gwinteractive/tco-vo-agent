@@ -50,19 +50,19 @@ We have preserved the removed content and related data for six months in line wi
 Thank you.
 `
 
-func buildMessage(template string, data agentData) (string, error) {
+func buildMessage(template ReplyToTicketTemplate, data agentData) (string, error) {
 	agency := fallbackValue(data.Data.AgencyName, "competent authority")
 	reference := fallbackValue(data.Data.ReferenceNumber, "N/A")
 
 	switch template {
-	case "more_info_required":
+	case ReplyToTicketTemplateMoreInfoRequired:
 		orderDate := fallbackValue(data.Data.Date, "not provided")
 		missing := fallbackValue(strings.TrimSpace(data.Reason), "Additional identifiers required under Article 3(4) to locate the content.")
 		return fmt.Sprintf(moreInfoRequiredMessage, reference, agency, orderDate, missing), nil
-	case "user_not_found":
+	case ReplyToTicketTemplateUserNotFound:
 		identifiers := formatIdentifiers(data.Data)
 		return fmt.Sprintf(userNotFoundMessage, reference, agency, identifiers), nil
-	case "user_banned":
+	case ReplyToTicketTemplateUserBanned:
 		identifiers := formatIdentifiers(data.Data)
 		actionTime := nowFn().UTC().Format(time.RFC3339)
 		return fmt.Sprintf(userBannedMessage, reference, agency, identifiers, actionTime), nil

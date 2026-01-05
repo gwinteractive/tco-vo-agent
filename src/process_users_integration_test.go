@@ -44,17 +44,17 @@ func TestProcessTicketsAsyncPipeline(t *testing.T) {
 
 	var mu sync.Mutex
 	var replies []struct {
-		template string
+		template ReplyToTicketTemplate
 		tickets  []agentData
 	}
 
-	replyToTicketsFn = func(tickets []agentData, messageTemplate string) error {
+	replyToTicketsFn = func(tickets []agentData, messageTemplate ReplyToTicketTemplate) error {
 		mu.Lock()
 		defer mu.Unlock()
 		copyTickets := make([]agentData, len(tickets))
 		copy(copyTickets, tickets)
 		replies = append(replies, struct {
-			template string
+			template ReplyToTicketTemplate
 			tickets  []agentData
 		}{template: messageTemplate, tickets: copyTickets})
 		return nil

@@ -249,7 +249,14 @@ func checkRequiredInfo(data agentData) (bool, string) {
 	return true, ""
 }
 
-func ReplyToTickets(tickets []agentData, messageTemplate string) error {
+type ReplyToTicketTemplate string
+const (
+	ReplyToTicketTemplateMoreInfoRequired ReplyToTicketTemplate = "more_info_required"
+	ReplyToTicketTemplateUserNotFound ReplyToTicketTemplate = "user_not_found"
+	ReplyToTicketTemplateUserBanned ReplyToTicketTemplate = "user_banned"
+)
+
+func ReplyToTickets(tickets []agentData, messageTemplate ReplyToTicketTemplate) error {
 	var message string
 	switch messageTemplate {
 		case "more_info_required":
